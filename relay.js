@@ -1,43 +1,36 @@
 const WebSocket = require("ws");
 const wss = new WebSocket.Server({ port: 31337 });
 
-console.log("GlobalChat Relay started on port 31337");
+console.log("Relay started on port 31337");
 
-wss.on("connection", ws => {
-    ws.on("message", data => {
+wss.on("connection", (ws, req) => {
+    const realIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+
+    ws.on("message", raw => {
         let packet;
-
         try {
-            packet = JSON.parse(data.toString());
+            packet = JSON.parse(raw.toString());
         } catch (e) {
-            console.log("Invalid JSON received:", data.toString());
+            console.log("Invalid JSON:", raw.toString());
             return;
         }
 
-        // Extract values with fallbacks
-        const ip     = packet.server_ip   || "unknown-ip";
-        const name   = packet.server_name || "unknown-server";
-        const player = packet.player_name || "unknown-player";
-        const uuid   = packet.player_uuid || "unknown-uuid";
-        const chan   = packet.channel     || "unknown-channel";
-        const msg    = packet.message     || "";
+        // Add true sender IP
+        packet.serverIp = realIp;
 
-        // Log to relay console
+        // Log
         console.log(
-            `[${name} @ ${ip}] (${chan}) ${player} [${uuid}] → ${msg}`
+            `[${packet.serverName || "unknown"} @ ${packet.serverIp}] (${packet.channel}) ` +
+            `${packet.playerName}: ${packet.message}`
         );
 
-        // Broadcast packet unchanged
-        const outgoing = JSON.stringify(packet);
+        const enriched = JSON.stringify(packet);
 
+        // Broadcast
         for (const client of wss.clients) {
             if (client !== ws && client.readyState === WebSocket.OPEN) {
-                client.send(outgoing);
+                client.send(enriched);
             }
         }
-    });
-
-    ws.on("close", () => {
-        console.log("A server disconnected.");
     });
 });
